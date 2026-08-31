@@ -13,10 +13,10 @@ public class AutoHdmiService extends IntentService {
     private static final String TAG = "AutoHDMI";
 
     // Robust boot sequence:
-    // attempt #1 at ~8s, #2 at ~13s, #3 at ~18s after the service starts.
-    private static final long INITIAL_DELAY_MS = 8000L;
-    private static final long RETRY_DELAY_MS = 5000L;
-    private static final int ATTEMPTS = 3;
+    // attempt #1 at ~1s, #2 at ~4s, #3 at ~7s, #4 at ~10s after the service starts.
+    private static final long INITIAL_DELAY_MS = 1000L;
+    private static final long RETRY_DELAY_MS = 3000L;
+    private static final int ATTEMPTS = 4;
 
     public AutoHdmiService() {
         super("AutoHdmiService");

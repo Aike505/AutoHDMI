@@ -34,7 +34,7 @@ public class MainActivity extends Activity {
         TextView title = new TextView(this);
         title.setText("AutoHDMI\n\n"
                 + "开机后自动进入康佳 TVSettings RootActivity。\n"
-                + "启动策略：约 8 秒第一次尝试，之后每 5 秒重试，共 3 次。\n\n"
+                + "启动策略：约 1 / 4 / 7 / 10 秒尝试，共 4 次。\n\n"
                 + "目标：com.konka.tvsettings/.RootActivity");
         title.setTextSize(20f);
         layout.addView(title);
@@ -63,6 +63,23 @@ public class MainActivity extends Activity {
                 Intent service = new Intent(MainActivity.this, AutoHdmiService.class);
                 service.setAction(AutoHdmiService.ACTION_MANUAL);
                 startService(service);
+            }
+        });
+        
+        Button factory = new Button(this);
+        factory.setText("打开工厂菜单");
+        factory.setTextSize(18f);
+        layout.addView(factory);
+
+        factory.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Intent intent = new Intent();
+                intent.setClassName(
+                        "com.konka.kkfactory",
+                        "com.konka.kkfactory.FactoryHome"
+                );
+                startActivity(intent);
             }
         });
 
