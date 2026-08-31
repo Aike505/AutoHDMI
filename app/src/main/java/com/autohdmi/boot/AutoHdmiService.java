@@ -1,36 +1,25 @@
 package com.autohdmi.boot;
 
+import android.app.ActivityManager;
 import android.app.IntentService;
+import android.content.ActivityNotFoundException;
+import android.content.ComponentName;
 import android.content.Intent;
 import android.os.SystemClock;
 import android.util.Log;
 
+import java.util.List;
+
 public class AutoHdmiService extends IntentService {
+
+    public static final String ACTION_BOOT = "com.autohdmi.boot.action.BOOT";
+    public static final String ACTION_MANUAL = "com.autohdmi.boot.action.MANUAL";
+    public static final String ACTION_HOME = "com.autohdmi.boot.action.HOME";
 
     private static final String TAG = "AutoHDMI";
 
-    public static final String ACTION_BOOT =
-            "com.autohdmi.boot.ACTION_BOOT";
-
-    public static final String ACTION_HOME =
-            "com.autohdmi.boot.ACTION_HOME";
-
-    // HOME代理路径：非常积极
-    private static final long[] HOME_DELAYS = {
-            0,
-            800,
-            2000,
-            4000,
-            7000
-    };
-
-    // BOOT_COMPLETED只是兜底
-    private static final long[] BOOT_DELAYS = {
-            1000,
-            4000,
-            7000,
-            10000
-    };
+    private static final long[] HOME_DELAYS_MS = {0L, 800L, 2000L, 4000L, 7000L};
+    private static final long[] BOOT_DELAYS_MS = {1000L, 4000L, 7000L, 10000L};
 
     public AutoHdmiService() {
         super("AutoHdmiService");
@@ -38,7 +27,13 @@ public class AutoHdmiService extends IntentService {
 
     @Override
     protected void onHandleIntent(Intent intent) {
-        if (intent == null) {
+        if (intent == null) return;
+
+        String action = intent.getAction();
+
+        if (ACTION_MANUAL.equals(action)) {
+            Log.i(TAG, "Manual HDMI launch");
+            launchKonkaTvRootActivity();
             return;
         }
 
@@ -50,89 +45,101 @@ public class AutoHdmiService extends IntentService {
             return;
         }
 
-        String action = intent.getAction();
-
         if (ACTION_HOME.equals(action)) {
             Log.i(TAG, "Fast HOME HDMI sequence started");
-            runSequence(HOME_DELAYS, "HOME");
-        } else {
+            runSequence(HOME_DELAYS_MS, "HOME");
+            return;
+        }
+
+        if (ACTION_BOOT.equals(action)) {
             Log.i(TAG, "BOOT fallback HDMI sequence started");
-            runSequence(BOOT_DELAYS, "BOOT");
+            runSequence(BOOT_DELAYS_MS, "BOOT");
         }
     }
 
     private void runSequence(long[] schedule, String source) {
-
-        long lastDelay = 0;
+        long previous = 0L;
 
         for (int i = 0; i < schedule.length; i++) {
+            long target = schedule[i];
+            long sleep = target - previous;
 
-            long targetDelay = schedule[i];
-            long sleep = targetDelay - lastDelay;
-
-            if (sleep > 0) {
+            if (sleep > 0L) {
                 SystemClock.sleep(sleep);
             }
 
+            if (isTvSettingsForeground()) {
+                Log.i(TAG, source + " already in TVSettings; stop retries");
+                return;
+            }
+
+            boolean accepted = launchKonkaTvRootActivity();
+
             Log.i(TAG,
-                    source + " HDMI attempt "
-                            + (i + 1) + "/"
-                            + schedule.length
-                            + " at " + targetDelay + "ms");
+                    source + " HDMI attempt " + (i + 1) + "/" + schedule.length
+                            + " at " + target + "ms"
+                            + ", startActivity accepted=" + accepted);
 
-            launchHdmi();
-
-            lastDelay = targetDelay;
+            previous = target;
         }
     }
 
-    private void launchHdmi() {
-
-        // 第一选择：康佳公开 action
+    private boolean isTvSettingsForeground() {
         try {
-            Intent intent =
-                    new Intent("com.konka.tvsettings.intent.action.RootActivity");
+            ActivityManager am = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+            if (am == null) return false;
 
-            intent.addCategory(Intent.CATEGORY_DEFAULT);
-            intent.setPackage("com.konka.tvsettings");
+            List<ActivityManager.RunningTaskInfo> tasks = am.getRunningTasks(1);
+            if (tasks == null || tasks.isEmpty()) return false;
 
-            intent.addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK |
-                    Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
-            );
-
-            startActivity(intent);
-
-            Log.i(TAG, "HDMI launch via public action");
-
-            return;
+            ComponentName top = tasks.get(0).topActivity;
+            return top != null && "com.konka.tvsettings".equals(top.getPackageName());
 
         } catch (Throwable e) {
-            Log.w(TAG,
-                    "Public HDMI action failed, trying explicit RootActivity",
-                    e);
+            Log.w(TAG, "Unable to inspect foreground activity", e);
+            return false;
+        }
+    }
+
+    private boolean launchKonkaTvRootActivity() {
+        try {
+            Intent actionIntent =
+                    new Intent("com.konka.tvsettings.intent.action.RootActivity");
+            actionIntent.addCategory(Intent.CATEGORY_DEFAULT);
+            actionIntent.setPackage("com.konka.tvsettings");
+            actionIntent.addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+            );
+
+            startActivity(actionIntent);
+            Log.i(TAG, "HDMI launch via public RootActivity action");
+            return true;
+
+        } catch (ActivityNotFoundException e) {
+            Log.w(TAG, "Public RootActivity action not found; use explicit", e);
+        } catch (SecurityException e) {
+            Log.w(TAG, "Public RootActivity action denied; use explicit", e);
+        } catch (Throwable e) {
+            Log.w(TAG, "Public RootActivity action failed; use explicit", e);
         }
 
-        // 第二选择：显式 Activity
         try {
-            Intent fallback = new Intent();
-
-            fallback.setClassName(
+            Intent explicitIntent = new Intent();
+            explicitIntent.setComponent(new ComponentName(
                     "com.konka.tvsettings",
                     "com.konka.tvsettings.RootActivity"
+            ));
+            explicitIntent.addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
             );
 
-            fallback.addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK |
-                    Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
-            );
-
-            startActivity(fallback);
-
+            startActivity(explicitIntent);
             Log.i(TAG, "HDMI launch via explicit RootActivity");
+            return true;
 
         } catch (Throwable e) {
-            Log.e(TAG, "HDMI launch completely failed", e);
+            Log.e(TAG, "Unable to start Konka TVSettings RootActivity", e);
+            return false;
         }
     }
 }

@@ -1,16 +1,19 @@
 package com.autohdmi.boot;
 
 import android.app.Activity;
+import android.content.ComponentName;
 import android.content.Intent;
-import android.content.SharedPreferences;
+import android.graphics.Typeface;
 import android.os.Bundle;
-import android.view.View;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 public class MainActivity extends Activity {
+
     private static final String PREFS = "autohdmi";
     private static final String KEY_ENABLED = "enabled";
 
@@ -18,94 +21,109 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        final SharedPreferences prefs =
-                getSharedPreferences(PREFS, MODE_PRIVATE);
+        int padding = dp(24);
 
-        // First launch defaults to enabled.
-        if (!prefs.contains(KEY_ENABLED)) {
-            prefs.edit().putBoolean(KEY_ENABLED, true).apply();
-        }
-
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        int pad = 32;
-        layout.setPadding(pad, pad, pad, pad);
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(padding, padding, padding, padding);
+        scroll.addView(root);
 
         TextView title = new TextView(this);
-        title.setText("AutoHDMI\n\n"
-                + "开机后自动进入康佳 TVSettings RootActivity。\n"
-                + "启动策略：约 1 / 4 / 7 / 10 秒尝试，共 4 次。\n\n"
-                + "目标：com.konka.tvsettings/.RootActivity");
-        title.setTextSize(20f);
-        layout.addView(title);
+        title.setText("AutoHDMI");
+        title.setTextSize(26);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        root.addView(title);
+
+        TextView description = new TextView(this);
+        description.setText(
+                "\n开机快速路径：HOME 出现时立即尝试，0 / 0.8 / 2 / 4 / 7 秒重试。\n"
+                        + "BOOT_COMPLETED 保留 1 / 4 / 7 / 10 秒兜底。\n"
+                        + "平时按 HOME 仍进入康佳桌面。\n\n"
+                        + "目标：com.konka.tvsettings/.RootActivity"
+        );
+        description.setTextSize(16);
+        root.addView(description);
 
         final CheckBox enabled = new CheckBox(this);
         enabled.setText("开机自动进入 HDMI");
-        enabled.setChecked(prefs.getBoolean(KEY_ENABLED, true));
-        enabled.setTextSize(18f);
-        layout.addView(enabled);
+        enabled.setTextSize(18);
+        enabled.setChecked(
+                getSharedPreferences(PREFS, MODE_PRIVATE)
+                        .getBoolean(KEY_ENABLED, true)
+        );
+        enabled.setOnCheckedChangeListener((buttonView, isChecked) ->
+                getSharedPreferences(PREFS, MODE_PRIVATE)
+                        .edit()
+                        .putBoolean(KEY_ENABLED, isChecked)
+                        .apply()
+        );
+        root.addView(enabled);
 
-        enabled.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                prefs.edit().putBoolean(KEY_ENABLED, enabled.isChecked()).apply();
-            }
+        Button hdmiButton = makeButton("立即进入 HDMI");
+        hdmiButton.setOnClickListener(v -> {
+            Intent service = new Intent(this, AutoHdmiService.class);
+            service.setAction(AutoHdmiService.ACTION_MANUAL);
+            startService(service);
         });
+        root.addView(hdmiButton);
 
-        Button test = new Button(this);
-        test.setText("立即测试进入 HDMI");
-        test.setTextSize(18f);
-        layout.addView(test);
+        Button launcherButton = makeButton("打开康佳桌面");
+        launcherButton.setOnClickListener(v -> openComponent(
+                "com.konka.ios7launcher",
+                "com.cyanogenmod.trebuchet.Launcher",
+                "无法打开康佳桌面"
+        ));
+        root.addView(launcherButton);
 
-        test.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                Intent service = new Intent(MainActivity.this, AutoHdmiService.class);
-                service.setAction(AutoHdmiService.ACTION_MANUAL);
-                startService(service);
-            }
-        });
-        
-        Button factory = new Button(this);
-        factory.setText("打开工厂菜单");
-        factory.setTextSize(18f);
-        layout.addView(factory);
+        Button factoryButton = makeButton("打开工厂菜单");
+        factoryButton.setOnClickListener(v -> openComponent(
+                "com.konka.kkfactory",
+                "com.konka.kkfactory.FactoryHome",
+                "无法打开工厂菜单"
+        ));
+        root.addView(factoryButton);
 
-        factory.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                Intent intent = new Intent();
-                intent.setClassName(
-                        "com.konka.kkfactory",
-                        "com.konka.kkfactory.FactoryHome"
-                );
-                startActivity(intent);
-            }
-        });
+        TextView note = new TextView(this);
+        note.setText(
+                "\n首次安装 HOME 代理版后：\n"
+                        + "按一次 HOME，在系统询问默认主屏幕时选择 AutoHDMI，并选择“始终”。\n\n"
+                        + "若不把 AutoHDMI 设为默认 HOME，仍可使用 BOOT_COMPLETED 兜底，"
+                        + "但会受到康佳开机广播队列延迟影响。"
+        );
+        note.setTextSize(14);
+        root.addView(note);
 
-        Button launcherButton = new Button(this);
-        launcherButton.setText("打开康佳桌面");
+        setContentView(scroll);
+    }
 
-        launcherButton.setOnClickListener(v -> {
-            try {
-                Intent intent = new Intent();
+    private Button makeButton(String text) {
+        Button button = new Button(this);
+        button.setText(text);
+        button.setTextSize(18);
 
-                intent.setClassName(
-                        "com.konka.ios7launcher",
-                        "com.cyanogenmod.trebuchet.Launcher"
-                );
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        lp.topMargin = dp(12);
+        button.setLayoutParams(lp);
+        return button;
+    }
 
-                startActivity(intent);
+    private void openComponent(String packageName, String className, String errorMessage) {
+        try {
+            Intent intent = new Intent();
+            intent.setComponent(new ComponentName(packageName, className));
+            intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+            startActivity(intent);
+        } catch (Throwable e) {
+            Toast.makeText(this, errorMessage, Toast.LENGTH_SHORT).show();
+        }
+    }
 
-            } catch (Throwable e) {
-                Toast.makeText(
-                        this,
-                        "无法打开康佳桌面",
-                        Toast.LENGTH_SHORT
-                ).show();
-            }
-        });
-
-        setContentView(layout);
+    private int dp(int value) {
+        float density = getResources().getDisplayMetrics().density;
+        return (int) (value * density + 0.5f);
     }
 }

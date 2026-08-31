@@ -3,43 +3,86 @@ package com.autohdmi.boot;
 import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.SystemClock;
 import android.util.Log;
 
 public class HomeProxyActivity extends Activity {
 
     private static final String TAG = "AutoHDMI";
+    private static final long BOOT_WINDOW_MS = 120000L;
+    private static final long REENTRY_GUARD_MS = 30000L;
+    private static final long FINISH_DELAY_MS = 11000L;
 
-    // 开机后 120 秒以内，把 HOME 当成“开机 HOME”
-    // 120 秒以后按 HOME，则正常进入康佳桌面
-    private static final long BOOT_WINDOW_MS = 120_000L;
+    private final Handler handler = new Handler();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        long uptime = SystemClock.elapsedRealtime();
+        final long uptime = SystemClock.elapsedRealtime();
 
         boolean enabled = getSharedPreferences("autohdmi", MODE_PRIVATE)
                 .getBoolean("enabled", true);
 
-        Log.i(TAG, "HomeProxy started, uptime=" + uptime
-                + ", enabled=" + enabled);
+        long lastUptime = getSharedPreferences("autohdmi", MODE_PRIVATE)
+                .getLong("last_proxy_uptime", -1L);
 
-        if (enabled && uptime < BOOT_WINDOW_MS) {
-            // 开机阶段：立即启动快速 HDMI 切换服务
-            Intent service = new Intent(this, AutoHdmiService.class);
-            service.setAction(AutoHdmiService.ACTION_HOME);
-            startService(service);
+        boolean sameBootRecentEntry =
+                lastUptime >= 0L
+                        && uptime >= lastUptime
+                        && (uptime - lastUptime) < REENTRY_GUARD_MS;
 
-            // Activity 本身完全不显示界面
+        Log.i(TAG,
+                "HomeProxy started"
+                        + ", uptime=" + uptime
+                        + ", enabled=" + enabled
+                        + ", lastUptime=" + lastUptime
+                        + ", guarded=" + sameBootRecentEntry);
+
+        if (!enabled) {
+            openKonkaLauncher();
             finish();
             return;
         }
 
-        // 非开机阶段：HOME 键仍然进入康佳原桌面
-        openKonkaLauncher();
-        finish();
+        if (uptime >= BOOT_WINDOW_MS) {
+            openKonkaLauncher();
+            finish();
+            return;
+        }
+
+        if (sameBootRecentEntry) {
+            Log.w(TAG, "HomeProxy re-entry guarded; falling back to Konka launcher");
+            openKonkaLauncher();
+            finish();
+            return;
+        }
+
+        getSharedPreferences("autohdmi", MODE_PRIVATE)
+                .edit()
+                .putLong("last_proxy_uptime", uptime)
+                .apply();
+
+        Intent service = new Intent(this, AutoHdmiService.class);
+        service.setAction(AutoHdmiService.ACTION_HOME);
+        startService(service);
+
+        handler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (!isFinishing()) {
+                    Log.i(TAG, "HomeProxy finish after safety delay");
+                    finish();
+                }
+            }
+        }, FINISH_DELAY_MS);
+    }
+
+    @Override
+    protected void onDestroy() {
+        handler.removeCallbacksAndMessages(null);
+        super.onDestroy();
     }
 
     private void openKonkaLauncher() {
@@ -49,8 +92,11 @@ public class HomeProxyActivity extends Activity {
                     "com.konka.ios7launcher",
                     "com.cyanogenmod.trebuchet.Launcher"
             );
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            intent.addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+            );
             startActivity(intent);
+
         } catch (Throwable e) {
             Log.e(TAG, "Cannot open Konka launcher", e);
         }
