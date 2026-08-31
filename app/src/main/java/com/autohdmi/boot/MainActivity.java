@@ -83,6 +83,29 @@ public class MainActivity extends Activity {
             }
         });
 
+        Button launcherButton = new Button(this);
+        launcherButton.setText("打开康佳桌面");
+
+        launcherButton.setOnClickListener(v -> {
+            try {
+                Intent intent = new Intent();
+
+                intent.setClassName(
+                        "com.konka.ios7launcher",
+                        "com.cyanogenmod.trebuchet.Launcher"
+                );
+
+                startActivity(intent);
+
+            } catch (Throwable e) {
+                Toast.makeText(
+                        this,
+                        "无法打开康佳桌面",
+                        Toast.LENGTH_SHORT
+                ).show();
+            }
+        });
+
         setContentView(layout);
     }
 }

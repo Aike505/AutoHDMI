@@ -17,6 +17,22 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".HomeProxyActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@style/Theme.AutoHdmi.Transparent">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+
+        </activity>
+
         <receiver
             android:name=".BootReceiver"
             android:enabled="true"
