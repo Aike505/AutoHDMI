@@ -5,6 +5,7 @@ import android.app.IntentService;
 import android.content.ActivityNotFoundException;
 import android.content.ComponentName;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.SystemClock;
 import android.util.Log;
 
@@ -17,9 +18,13 @@ public class AutoHdmiService extends IntentService {
     public static final String ACTION_HOME = "com.autohdmi.boot.action.HOME";
 
     private static final String TAG = "AutoHDMI";
+    private static final String PREFS = "autohdmi";
 
-    private static final long[] HOME_DELAYS_MS = {0L, 800L, 2000L, 4000L, 7000L};
-    private static final long[] BOOT_DELAYS_MS = {1000L, 4000L, 7000L, 10000L};
+    private static final long[] HOME_DELAYS_MS =
+            {0L, 800L, 2000L, 4000L, 7000L};
+
+    private static final long[] BOOT_DELAYS_MS =
+            {1000L, 4000L, 7000L, 10000L};
 
     public AutoHdmiService() {
         super("AutoHdmiService");
@@ -37,7 +42,7 @@ public class AutoHdmiService extends IntentService {
             return;
         }
 
-        boolean enabled = getSharedPreferences("autohdmi", MODE_PRIVATE)
+        boolean enabled = getSharedPreferences(PREFS, MODE_PRIVATE)
                 .getBoolean("enabled", true);
 
         if (!enabled) {
@@ -45,8 +50,13 @@ public class AutoHdmiService extends IntentService {
             return;
         }
 
+        if (isMaintenanceWindowActive()) {
+            Log.i(TAG, "Maintenance window active; skip HDMI");
+            return;
+        }
+
         if (ACTION_HOME.equals(action)) {
-            Log.i(TAG, "Fast HOME HDMI sequence started");
+            Log.i(TAG, "HOME HDMI sequence started");
             runSequence(HOME_DELAYS_MS, "HOME");
             return;
         }
@@ -68,6 +78,11 @@ public class AutoHdmiService extends IntentService {
                 SystemClock.sleep(sleep);
             }
 
+            if (isMaintenanceWindowActive()) {
+                Log.i(TAG, source + " cancelled by maintenance window");
+                return;
+            }
+
             if (isTvSettingsForeground()) {
                 Log.i(TAG, source + " already in TVSettings; stop retries");
                 return;
@@ -84,16 +99,40 @@ public class AutoHdmiService extends IntentService {
         }
     }
 
+    private boolean isMaintenanceWindowActive() {
+        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        long until = prefs.getLong(
+                HomeProxyActivity.KEY_MAINTENANCE_UNTIL_MS, 0L);
+        long now = System.currentTimeMillis();
+
+        if (until <= now) {
+            if (until != 0L) {
+                prefs.edit()
+                        .remove(HomeProxyActivity.KEY_MAINTENANCE_UNTIL_MS)
+                        .apply();
+            }
+            return false;
+        }
+
+        return true;
+    }
+
     private boolean isTvSettingsForeground() {
         try {
-            ActivityManager am = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+            ActivityManager am =
+                    (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+
             if (am == null) return false;
 
-            List<ActivityManager.RunningTaskInfo> tasks = am.getRunningTasks(1);
+            List<ActivityManager.RunningTaskInfo> tasks =
+                    am.getRunningTasks(1);
+
             if (tasks == null || tasks.isEmpty()) return false;
 
             ComponentName top = tasks.get(0).topActivity;
-            return top != null && "com.konka.tvsettings".equals(top.getPackageName());
+
+            return top != null
+                    && "com.konka.tvsettings".equals(top.getPackageName());
 
         } catch (Throwable e) {
             Log.w(TAG, "Unable to inspect foreground activity", e);
@@ -105,10 +144,12 @@ public class AutoHdmiService extends IntentService {
         try {
             Intent actionIntent =
                     new Intent("com.konka.tvsettings.intent.action.RootActivity");
+
             actionIntent.addCategory(Intent.CATEGORY_DEFAULT);
             actionIntent.setPackage("com.konka.tvsettings");
             actionIntent.addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                    Intent.FLAG_ACTIVITY_NEW_TASK
+                            | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
             );
 
             startActivity(actionIntent);
@@ -125,12 +166,15 @@ public class AutoHdmiService extends IntentService {
 
         try {
             Intent explicitIntent = new Intent();
+
             explicitIntent.setComponent(new ComponentName(
                     "com.konka.tvsettings",
                     "com.konka.tvsettings.RootActivity"
             ));
+
             explicitIntent.addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                    Intent.FLAG_ACTIVITY_NEW_TASK
+                            | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
             );
 
             startActivity(explicitIntent);
